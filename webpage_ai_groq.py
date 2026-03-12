@@ -3,68 +3,61 @@ from groq import Groq
 from pypdf import PdfReader
 from datetime import datetime
 
-# --- 1. Setup & Memory ---
-st.set_page_config(page_title="Adrito's AI Explorer", page_icon="💬", layout="wide")
+# --- 1. Setup ---
+st.set_page_config(page_title="Adrito's AI 2026", page_icon="💬", layout="wide")
 
-# This stores ALL your different chat threads
+# This is the "Memory Bank" for the current session
 if "all_sessions" not in st.session_state:
-    st.session_state.all_sessions = {} # Dictionary: { "Chat Title": [messages] }
+    st.session_state.all_sessions = {"Default Chat": []}
 if "current_chat" not in st.session_state:
-    st.session_state.current_chat = "New Chat"
+    st.session_state.current_chat = "Default Chat"
 
-# --- 2. Sidebar: Chat History List ---
+# --- 2. Sidebar with History List ---
 with st.sidebar:
     st.title("📂 Chat History")
     
-    # "New Chat" Button
+    # New Chat Button
     if st.button("➕ New Chat", use_container_width=True):
-        now = datetime.now().strftime("%H:%M:%S")
-        st.session_state.current_chat = f"Chat {now}"
+        new_name = f"Chat {datetime.now().strftime('%H:%M:%S')}"
+        st.session_state.all_sessions[new_name] = []
+        st.session_state.current_chat = new_name
         st.rerun()
 
     st.divider()
 
-    # List of previous chats (Like your image!)
-    for chat_title in st.session_state.all_sessions.keys():
-        if st.button(chat_title, use_container_width=True, key=chat_title):
+    # This loop generates that list you saw in your screenshot
+    for chat_title in list(st.session_state.all_sessions.keys()):
+        # Highlights the active chat
+        type_style = "primary" if chat_title == st.session_state.current_chat else "secondary"
+        if st.button(chat_title, use_container_width=True, type=type_style):
             st.session_state.current_chat = chat_title
             st.rerun()
 
-    st.divider()
-    # File Uploader moved here to keep it tidy
-    uploaded_file = st.file_uploader("Attach Context", type=["pdf", "txt", "py"])
-
-# --- 3. Load Current Chat Messages ---
-if st.session_state.current_chat not in st.session_state.all_sessions:
-    st.session_state.all_sessions[st.session_state.current_chat] = []
-
+# --- 3. Main Chat UI ---
+st.title(f"🚀 {st.session_state.current_chat}")
 messages = st.session_state.all_sessions[st.session_state.current_chat]
 
-# --- 4. Display the Chat UI ---
-st.title(f"💬 {st.session_state.current_chat}")
-
-# Display history
+# Display messages from the selected chat
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 5. AI Logic ---
+# --- 4. AI Engine ---
 GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 client = Groq(api_key=GROQ_API_KEY)
 
-if prompt := st.chat_input("Ask me anything..."):
-    # Show user message
+if prompt := st.chat_input("Start a conversation..."):
+    # Save and show user message
+    messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
-    messages.append({"role": "user", "content": prompt})
 
-    # AI Response
+    # Date awareness for 2026
+    sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. You are an AI in 2026."
+
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
         full_response = ""
-        
-        # Injected Year 2026 Context
-        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Year is 2026."
         
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
@@ -79,5 +72,11 @@ if prompt := st.chat_input("Ask me anything..."):
         
         response_placeholder.markdown(full_response)
         messages.append({"role": "assistant", "content": full_response})
+    
+    # Update the "Title" of the chat based on the first question
+    if len(messages) == 2: # After first Q&A
+        new_title = prompt[:25] + "..." if len(prompt) > 25 else prompt
+        st.session_state.all_sessions[new_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+        st.session_state.current_chat = new_title
     
     st.rerun()
