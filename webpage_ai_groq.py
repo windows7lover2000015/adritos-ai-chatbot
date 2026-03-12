@@ -1,59 +1,57 @@
 import streamlit as st
 from groq import Groq
+from pypdf import PdfReader
 
 # Set up page
-st.set_page_config(page_title="Adrito's AI + Attachments", page_icon="📎")
-st.title("📎 Adrito's AI with Attachments")
+st.set_page_config(page_title="Adrito's AI Explorer", page_icon="📄")
+st.title("📄 Adrito's AI + Documents")
 
-# 1. API Key Setup (Best to use Streamlit Secrets for the Cloud)
-# If testing locally, you can paste your key here.
-GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "your_key_here")
+# API Key from Streamlit Secrets
+GROQ_API_KEY = st.secrets.get("GROQ_API_KEY", "")
 client = Groq(api_key=GROQ_API_KEY)
 
-# --- Sidebar for File Uploads ---
+# --- Sidebar: File Upload ---
 with st.sidebar:
-    st.header("Attachments")
-    uploaded_file = st.file_uploader("Upload a file (.txt, .py, .md)", type=["txt", "py", "md"])
+    st.header("Upload Center")
+    uploaded_file = st.file_uploader("Upload PDF or Text", type=["pdf", "txt", "py"])
     
-    file_content = ""
-    if uploaded_file is not None:
-        # Read the file as text
-        file_content = uploaded_file.read().decode("utf-8")
-        st.success(f"Attached: {uploaded_file.name}")
-        st.info("The AI will now 'read' this file when you ask a question.")
+    context_text = ""
+    if uploaded_file:
+        if uploaded_file.type == "application/pdf":
+            # Extract text from PDF
+            pdf_reader = PdfReader(uploaded_file)
+            for page in pdf_reader.pages:
+                context_text += page.extract_text() + "\n"
+        else:
+            # Read plain text files
+            context_text = uploaded_file.read().decode("utf-8")
+        
+        st.success(f"Loaded: {uploaded_file.name}")
 
-# --- Chat Logic ---
+# --- Chat Interface ---
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-# Display history
 for message in st.session_state.messages:
     with st.chat_message(message["role"]):
         st.markdown(message["content"])
 
-# User input
-if prompt := st.chat_input("Ask about the file or just chat..."):
-    # If a file is attached, inject it into the prompt silently
-    final_prompt = prompt
-    if file_content:
-        final_prompt = f"Context from attached file '{uploaded_file.name}':\n\n{file_content}\n\nUser Question: {prompt}"
-
+if prompt := st.chat_input("Ask a question about your file..."):
     st.chat_message("user").markdown(prompt)
     st.session_state.messages.append({"role": "user", "content": prompt})
+
+    # Prepare the prompt with file context if available
+    full_prompt = prompt
+    if context_text:
+        full_prompt = f"DOCUMENT CONTEXT:\n{context_text[:10000]}\n\nUSER QUESTION: {prompt}"
 
     with st.chat_message("assistant"):
         response_placeholder = st.empty()
         full_response = ""
         
-        # We pass the full history + the context-aware prompt
         completion = client.chat.completions.create(
             model="llama-3.1-8b-instant",
-            messages=[
-                {"role": "system", "content": "You are a helpful assistant. If the user provides file context, use it to answer accurately."}
-            ] + [
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages[:-1] # Old history
-            ] + [{"role": "user", "content": final_prompt}], # Latest prompt with file context
+            messages=[{"role": "user", "content": full_prompt}],
             stream=True,
         )
 
