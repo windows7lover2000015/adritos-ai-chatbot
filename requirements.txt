@@ -2,3 +2,4 @@ streamlit
 groq
 pypdf
 streamlit-local-storage
+python-docx
