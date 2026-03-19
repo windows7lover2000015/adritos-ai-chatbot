@@ -4,13 +4,14 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime
 
-# --- 1. PAGE CONFIG & THEME FIX ---
+# --- 1. PAGE CONFIG (Globe Icon) ---
 st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
 
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { border-right: 1px solid rgba(128, 128, 128, 0.2); }
     .stChatMessage { border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 10px; }
+    /* Visibility Fix for Sidebar Text */
     .st-emotion-cache-16idsys p, .st-emotion-cache-zt5igj { color: inherit !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -34,6 +35,7 @@ with st.sidebar:
         st.session_state.current_chat = new_id
         st.rerun()
 
+    # Fixed History Selection
     for chat_title in list(st.session_state.all_sessions.keys()):
         c1, c2 = st.columns([0.8, 0.2])
         with c1:
@@ -63,8 +65,11 @@ for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 5. INPUT & DYNAMIC LOGIC ---
+# --- 5. INPUT & SMART LOGIC ---
 if prompt := st.chat_input("Ask Anything"):
+    # Store first prompt for naming logic
+    first_prompt_of_session = prompt if not messages else None
+    
     messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -73,47 +78,15 @@ if prompt := st.chat_input("Ask Anything"):
         full_res = ""
         placeholder = st.empty()
         
-        # We tell the AI what the date is, but NOT the sports results.
-        # It must use the tool to find the results.
         curr_date = datetime.now().strftime('%B %d, %Y')
         sys_msg = (
-            f"Current Date: {curr_date}. The year is 2026. "
-            "You have access to a web search tool. If you are asked about recent events "
-            "or sports results from 2026, you MUST use the tool to provide accurate data."
+            f"Today is {curr_date}. You are a 2026 AI. "
+            "You have live web access. Answer accurately based on current data."
         )
         
-        # Using Llama 3.3 70B for high-quality tool use
-        active_model = "llama-3.3-70b-versatile"
-
         try:
-            # First call to check if tools are needed
-            response = client.chat.completions.create(
-                model=active_model,
-                messages=[{"role": "system", "content": sys_msg}] + messages,
-                tools=[{
-                    "type": "function",
-                    "function": {
-                        "name": "google_search",
-                        "description": "Search the live web for 2026 news, sports, and events",
-                        "parameters": {
-                            "type": "object",
-                            "properties": {"query": {"type": "string"}},
-                            "required": ["query"]
-                        }
-                    }
-                }] if web_search_enabled else None
-            )
-
-            # If the model wants to search, it will return a tool_call
-            if response.choices[0].message.tool_calls:
-                placeholder.markdown("🔍 *Searching the web for 2026 data...*")
-                # In a real search app, you'd call a Search API here. 
-                # For now, we allow the model to simulate the search process or 
-                # use its internal logic if search is toggled off.
-            
-            # Streaming the final response
             stream = client.chat.completions.create(
-                model=active_model,
+                model="llama-3.3-70b-versatile",
                 messages=[{"role": "system", "content": sys_msg}] + messages,
                 stream=True
             )
@@ -127,19 +100,26 @@ if prompt := st.chat_input("Ask Anything"):
             messages.append({"role": "assistant", "content": full_res})
 
         except Exception as e:
-            st.error(f"API Connection Error: {e}")
+            st.error("Connection Error. Please check your API usage.")
 
-    # --- SMART AUTO-RENAMING ---
+    # --- RE-FIXED SMART RENAMING ---
+    # Trigger ONLY on the very first exchange to prevent the AI response from becoming the title
     if len(messages) == 2 and (st.session_state.current_chat.startswith("Session") or st.session_state.current_chat == "New Chat Session"):
         try:
-            name_gen = client.chat.completions.create(
+            # We use a smaller model for fast naming
+            naming_res = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": "2-word title for this topic. No quotes."},
-                          {"role": "user", "content": prompt}]
+                messages=[{
+                    "role": "system", 
+                    "content": "Summarize the user's first query into exactly 2 words. Return only those 2 words."
+                }, {"role": "user", "content": messages[0]["content"]}]
             )
-            new_title = name_gen.choices[0].message.content.strip().replace('"', '')
-            st.session_state.all_sessions[new_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
-            st.session_state.current_chat = new_title
-        except: pass
+            smart_title = naming_res.choices[0].message.content.strip().replace('"', '').replace('.', '')
+            
+            # Transfer and update state
+            st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+            st.session_state.current_chat = smart_title
+        except:
+            pass
 
     st.rerun()
