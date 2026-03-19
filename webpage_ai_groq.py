@@ -4,29 +4,16 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime
 
-# --- 1. PAGE CONFIG & DYNAMIC STYLING ---
+# --- 1. PAGE CONFIG & THEME-FRIENDLY STYLING ---
 st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
 
-# This CSS fixes the readability issues in Dark Mode
+# CSS to ensure high contrast and readability in both Light and Dark modes
 st.markdown("""
     <style>
-    /* Remove forced backgrounds to allow Streamlit themes to work */
-    [data-testid="stSidebar"] {
-        border-right: 1px solid rgba(128, 128, 128, 0.2);
-    }
-    
-    /* Ensure chat bubbles look good in both modes */
-    .stChatMessage {
-        border-radius: 15px;
-        border: 1px solid rgba(128, 128, 128, 0.2);
-        margin-bottom: 10px;
-        padding: 10px;
-    }
-
-    /* Fix for sidebar text visibility */
-    .st-emotion-cache-16idsys p {
-        color: inherit !important;
-    }
+    [data-testid="stSidebar"] { border-right: 1px solid rgba(128, 128, 128, 0.2); }
+    .stChatMessage { border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 10px; padding: 10px; }
+    /* Force text to follow theme colors */
+    .st-emotion-cache-16idsys p, .st-emotion-cache-zt5igj { color: inherit !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -69,7 +56,6 @@ with st.sidebar:
         st.session_state.current_chat = new_id
         st.rerun()
 
-    # Chat list with Select & Delete [X]
     for chat_title in list(st.session_state.all_sessions.keys()):
         c1, c2 = st.columns([0.8, 0.2])
         with c1:
@@ -78,7 +64,7 @@ with st.sidebar:
                 st.session_state.current_chat = chat_title
                 st.rerun()
         with c2:
-            if st.button("X", key=f"del_{chat_title}", help="Delete"):
+            if st.button("X", key=f"del_{chat_title}"):
                 del st.session_state.all_sessions[chat_title]
                 if not st.session_state.all_sessions:
                     st.session_state.all_sessions["New Chat Session"] = []
@@ -100,7 +86,7 @@ for msg in messages:
         st.markdown(msg["content"])
 
 # --- 5. INPUT & LIVE LOGIC ---
-if prompt := st.chat_input("Ask Adrito AI..."):
+if prompt := st.chat_input("Ask Adrito AI anything..."):
     messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -109,12 +95,12 @@ if prompt := st.chat_input("Ask Adrito AI..."):
         full_res = ""
         placeholder = st.empty()
         
-        # CONFIDENT 2026 SYSTEM PROMPT
+        # SYSTEM PROMPT (Fixed for 2026)
         curr_date = datetime.now().strftime('%B %d, %Y')
         sys_msg = (
-            f"Today is {curr_date}. You are Adrito's advanced 2026 AI. "
-            "You have real-time capabilities. Do not say your knowledge is limited to 2023. "
-            "If Web Search is enabled, you can provide the latest 2026 updates."
+            f"Today is {curr_date}. You are a 2026 AI. "
+            "If Web Search is enabled, you have access to live news. "
+            "You are helpful, concise, and smart."
         )
         
         active_model = "groq/compound" if web_search_enabled else "llama-3.3-70b-versatile"
@@ -137,17 +123,25 @@ if prompt := st.chat_input("Ask Adrito AI..."):
         placeholder.markdown(full_res)
         messages.append({"role": "assistant", "content": full_res})
 
-    # --- SMART AUTO-RENAMING ---
-    if len(messages) == 2 and st.session_state.current_chat.startswith("Session "):
+    # --- ENHANCED UNIVERSAL SMART RENAMING ---
+    # Renames after the 1st exchange if the name is still a "Session" default
+    if len(messages) == 2 and (st.session_state.current_chat.startswith("Session") or st.session_state.current_chat == "New Chat Session"):
         try:
-            name_gen = client.chat.completions.create(
+            # We use a very direct instruction to the AI to name the chat based on user intent
+            naming_res = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": "Return a 2-word title for this topic. Words only."},
-                          {"role": "user", "content": prompt}]
+                messages=[{
+                    "role": "system", 
+                    "content": "Analyze the user's message and create a 2-3 word title. "
+                               "Examples: 'Himachal Trip', '2026 News', 'Python Bug', 'Music Chat'. "
+                               "Return ONLY the words, no quotes or periods."
+                }, {"role": "user", "content": prompt}]
             )
-            new_title = name_gen.choices[0].message.content.strip().replace('"', '')
-            st.session_state.all_sessions[new_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
-            st.session_state.current_chat = new_title
+            smart_title = naming_res.choices[0].message.content.strip().replace('"', '')
+            
+            # Transfer the chat history to the new name
+            st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+            st.session_state.current_chat = smart_title
         except:
             pass
 
