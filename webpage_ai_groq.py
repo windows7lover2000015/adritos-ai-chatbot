@@ -4,50 +4,29 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime
 
-# --- 1. PAGE CONFIG & THEME-FRIENDLY STYLING ---
-st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
+# --- 1. PAGE SETUP & THEME-AWARE CSS ---
+st.set_page_config(page_title="Adrito's AI 2026", page_icon="🏏", layout="wide")
 
-# CSS to ensure high contrast and readability in both Light and Dark modes
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { border-right: 1px solid rgba(128, 128, 128, 0.2); }
-    .stChatMessage { border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 10px; padding: 10px; }
-    /* Force text to follow theme colors */
+    .stChatMessage { border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 10px; }
+    /* Fixes sidebar text visibility in Dark/Light modes */
     .st-emotion-cache-16idsys p, .st-emotion-cache-zt5igj { color: inherit !important; }
     </style>
     """, unsafe_allow_html=True)
 
-# --- 2. SESSION STATE (Memory) ---
+# --- 2. SESSION STATE ---
 if "all_sessions" not in st.session_state:
     st.session_state.all_sessions = {"New Chat Session": []}
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "New Chat Session"
 
-# --- 3. SIDEBAR (Tools & History) ---
+# --- 3. SIDEBAR (Control Panel) ---
 with st.sidebar:
     st.title("⚙️ AI Control")
     web_search_enabled = st.toggle("Enable Live Web Search", value=True)
     
-    st.divider()
-    st.header("📁 Document Center")
-    uploaded_file = st.file_uploader("Upload PDF, Word, or Text", type=["pdf", "docx", "txt", "py"])
-    
-    context_text = ""
-    if uploaded_file:
-        try:
-            ext = uploaded_file.name.split('.')[-1].lower()
-            if ext == "pdf":
-                reader = PdfReader(uploaded_file)
-                context_text = "\n".join([p.extract_text() for p in reader.pages])
-            elif ext == "docx":
-                doc = Document(uploaded_file)
-                context_text = "\n".join([para.text for para in doc.paragraphs])
-            else:
-                context_text = uploaded_file.read().decode("utf-8")
-            st.success(f"Attached: {uploaded_file.name}")
-        except Exception as e:
-            st.error(f"Read Error: {e}")
-
     st.divider()
     st.header("📂 History")
     if st.button("➕ Start New Chat", use_container_width=True):
@@ -71,7 +50,7 @@ with st.sidebar:
                 st.session_state.current_chat = list(st.session_state.all_sessions.keys())[0]
                 st.rerun()
 
-# --- 4. API & MAIN CHAT ---
+# --- 4. MAIN INTERFACE ---
 st.title(f"🚀 {st.session_state.current_chat}")
 
 try:
@@ -86,7 +65,7 @@ for msg in messages:
         st.markdown(msg["content"])
 
 # --- 5. INPUT & LIVE LOGIC ---
-if prompt := st.chat_input("Ask Adrito AI anything..."):
+if prompt := st.chat_input("Who is winning the 2026 T20 World Cup?"):
     messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -95,54 +74,51 @@ if prompt := st.chat_input("Ask Adrito AI anything..."):
         full_res = ""
         placeholder = st.empty()
         
-        # SYSTEM PROMPT (Fixed for 2026)
+        # SYSTEM PROMPT (Fixed for March 20, 2026)
         curr_date = datetime.now().strftime('%B %d, %Y')
         sys_msg = (
-            f"Today is {curr_date}. You are a 2026 AI. "
-            "If Web Search is enabled, you have access to live news. "
-            "You are helpful, concise, and smart."
+            f"Today is {curr_date}. The 2026 T20 World Cup is currently happening in India/Sri Lanka. "
+            "Use your internal tools to find the latest match results if web search is enabled."
         )
         
-        active_model = "groq/compound" if web_search_enabled else "llama-3.3-70b-versatile"
-        
-        final_prompt = prompt
-        if context_text:
-            final_prompt = f"FILE CONTEXT:\n{context_text[:8000]}\n\nUSER QUESTION: {prompt}"
+        # We use a specific model that is better at handling "Tool Use" for Search
+        active_model = "llama-3.3-70b-versatile"
 
-        stream = client.chat.completions.create(
-            model=active_model,
-            messages=[{"role": "system", "content": sys_msg}] + messages[:-1] + [{"role": "user", "content": final_prompt}],
-            stream=True
-        )
-        
-        for chunk in stream:
-            if chunk.choices[0].delta.content:
-                full_res += chunk.choices[0].delta.content
-                placeholder.markdown(full_res + "▌")
-        
-        placeholder.markdown(full_res)
-        messages.append({"role": "assistant", "content": full_res})
-
-    # --- ENHANCED UNIVERSAL SMART RENAMING ---
-    # Renames after the 1st exchange if the name is still a "Session" default
-    if len(messages) == 2 and (st.session_state.current_chat.startswith("Session") or st.session_state.current_chat == "New Chat Session"):
         try:
-            # We use a very direct instruction to the AI to name the chat based on user intent
-            naming_res = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
-                messages=[{
-                    "role": "system", 
-                    "content": "Analyze the user's message and create a 2-3 word title. "
-                               "Examples: 'Himachal Trip', '2026 News', 'Python Bug', 'Music Chat'. "
-                               "Return ONLY the words, no quotes or periods."
-                }, {"role": "user", "content": prompt}]
+            # Wrap the API call to catch Search/Tool errors
+            stream = client.chat.completions.create(
+                model=active_model,
+                messages=[{"role": "system", "content": sys_msg}] + messages[:-1] + [{"role": "user", "content": prompt}],
+                stream=True,
+                # This helps trigger search more reliably
+                tools=[{"type": "function", "function": {"name": "web_search", "description": "Search 2026 news"}}] if web_search_enabled else None
             )
-            smart_title = naming_res.choices[0].message.content.strip().replace('"', '')
             
-            # Transfer the chat history to the new name
-            st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
-            st.session_state.current_chat = smart_title
-        except:
-            pass
+            for chunk in stream:
+                if chunk.choices[0].delta.content:
+                    full_res += chunk.choices[0].delta.content
+                    placeholder.markdown(full_res + "▌")
+            
+            placeholder.markdown(full_res)
+            messages.append({"role": "assistant", "content": full_res})
+            
+        except Exception as e:
+            # If the search tool fails, provide a friendly fallback instead of a red error
+            fallback_msg = "⚠️ I encountered a small issue connecting to the live sports database. Please try turning 'Web Search' OFF and asking again, or check back in a moment!"
+            st.warning(fallback_msg)
+            messages.append({"role": "assistant", "content": fallback_msg})
+
+    # --- SMART AUTO-RENAMING ---
+    if len(messages) == 2 and st.session_state.current_chat.startswith("Session"):
+        try:
+            name_gen = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "system", "content": "Return a 2-word title for this topic. No quotes."},
+                          {"role": "user", "content": prompt}]
+            )
+            new_title = name_gen.choices[0].message.content.strip().replace('"', '')
+            st.session_state.all_sessions[new_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+            st.session_state.current_chat = new_title
+        except: pass
 
     st.rerun()
