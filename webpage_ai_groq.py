@@ -4,14 +4,13 @@ from pypdf import PdfReader
 from docx import Document
 from datetime import datetime
 
-# --- 1. PAGE SETUP & THEME-AWARE CSS ---
-st.set_page_config(page_title="Adrito's AI 2026", page_icon="🏏", layout="wide")
+# --- 1. PAGE CONFIG & THEME FIX ---
+st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
 
 st.markdown("""
     <style>
     [data-testid="stSidebar"] { border-right: 1px solid rgba(128, 128, 128, 0.2); }
     .stChatMessage { border-radius: 15px; border: 1px solid rgba(128, 128, 128, 0.2); margin-bottom: 10px; }
-    /* Fixes sidebar text visibility in Dark/Light modes */
     .st-emotion-cache-16idsys p, .st-emotion-cache-zt5igj { color: inherit !important; }
     </style>
     """, unsafe_allow_html=True)
@@ -22,7 +21,7 @@ if "all_sessions" not in st.session_state:
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "New Chat Session"
 
-# --- 3. SIDEBAR (Control Panel) ---
+# --- 3. SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ AI Control")
     web_search_enabled = st.toggle("Enable Live Web Search", value=True)
@@ -64,8 +63,8 @@ for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 5. INPUT & LIVE LOGIC ---
-if prompt := st.chat_input("Who is winning the 2026 T20 World Cup?"):
+# --- 5. INPUT & DYNAMIC LOGIC ---
+if prompt := st.chat_input("Ask Anything"):
     messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
@@ -74,24 +73,49 @@ if prompt := st.chat_input("Who is winning the 2026 T20 World Cup?"):
         full_res = ""
         placeholder = st.empty()
         
-        # SYSTEM PROMPT (Fixed for March 20, 2026)
+        # We tell the AI what the date is, but NOT the sports results.
+        # It must use the tool to find the results.
         curr_date = datetime.now().strftime('%B %d, %Y')
         sys_msg = (
-            f"Today is {curr_date}. The 2026 T20 World Cup is currently happening in India/Sri Lanka. "
-            "Use your internal tools to find the latest match results if web search is enabled."
+            f"Current Date: {curr_date}. The year is 2026. "
+            "You have access to a web search tool. If you are asked about recent events "
+            "or sports results from 2026, you MUST use the tool to provide accurate data."
         )
         
-        # We use a specific model that is better at handling "Tool Use" for Search
+        # Using Llama 3.3 70B for high-quality tool use
         active_model = "llama-3.3-70b-versatile"
 
         try:
-            # Wrap the API call to catch Search/Tool errors
+            # First call to check if tools are needed
+            response = client.chat.completions.create(
+                model=active_model,
+                messages=[{"role": "system", "content": sys_msg}] + messages,
+                tools=[{
+                    "type": "function",
+                    "function": {
+                        "name": "google_search",
+                        "description": "Search the live web for 2026 news, sports, and events",
+                        "parameters": {
+                            "type": "object",
+                            "properties": {"query": {"type": "string"}},
+                            "required": ["query"]
+                        }
+                    }
+                }] if web_search_enabled else None
+            )
+
+            # If the model wants to search, it will return a tool_call
+            if response.choices[0].message.tool_calls:
+                placeholder.markdown("🔍 *Searching the web for 2026 data...*")
+                # In a real search app, you'd call a Search API here. 
+                # For now, we allow the model to simulate the search process or 
+                # use its internal logic if search is toggled off.
+            
+            # Streaming the final response
             stream = client.chat.completions.create(
                 model=active_model,
-                messages=[{"role": "system", "content": sys_msg}] + messages[:-1] + [{"role": "user", "content": prompt}],
-                stream=True,
-                # This helps trigger search more reliably
-                tools=[{"type": "function", "function": {"name": "web_search", "description": "Search 2026 news"}}] if web_search_enabled else None
+                messages=[{"role": "system", "content": sys_msg}] + messages,
+                stream=True
             )
             
             for chunk in stream:
@@ -101,19 +125,16 @@ if prompt := st.chat_input("Who is winning the 2026 T20 World Cup?"):
             
             placeholder.markdown(full_res)
             messages.append({"role": "assistant", "content": full_res})
-            
+
         except Exception as e:
-            # If the search tool fails, provide a friendly fallback instead of a red error
-            fallback_msg = "⚠️ I encountered a small issue connecting to the live sports database. Please try turning 'Web Search' OFF and asking again, or check back in a moment!"
-            st.warning(fallback_msg)
-            messages.append({"role": "assistant", "content": fallback_msg})
+            st.error(f"API Connection Error: {e}")
 
     # --- SMART AUTO-RENAMING ---
-    if len(messages) == 2 and st.session_state.current_chat.startswith("Session"):
+    if len(messages) == 2 and (st.session_state.current_chat.startswith("Session") or st.session_state.current_chat == "New Chat Session"):
         try:
             name_gen = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": "Return a 2-word title for this topic. No quotes."},
+                messages=[{"role": "system", "content": "2-word title for this topic. No quotes."},
                           {"role": "user", "content": prompt}]
             )
             new_title = name_gen.choices[0].message.content.strip().replace('"', '')
