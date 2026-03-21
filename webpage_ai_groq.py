@@ -1,8 +1,11 @@
 import streamlit as st
 from groq import Groq
 from datetime import datetime
+import PyPDF2
+from docx import Document
+import io
 
-# --- 1. PAGE SETUP (Globe Icon & Tab Name) ---
+# --- 1. PAGE SETUP ---
 st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
 
 # --- 2. SESSION STATE ---
@@ -11,14 +14,27 @@ if "all_sessions" not in st.session_state:
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "New Chat Session"
 
-# --- 3. SIDEBAR (Fixed Web Search Toggle) ---
+# --- 3. FILE PROCESSING FUNCTIONS ---
+def extract_text(file):
+    fname = file.name.lower()
+    if fname.endswith(('.txt', '.py', '.md')):
+        return file.read().decode("utf-8")
+    elif fname.endswith('.pdf'):
+        pdf_reader = PyPDF2.PdfReader(file)
+        return "\n".join([page.extract_text() for page in pdf_reader.pages])
+    elif fname.endswith('.docx'):
+        doc = Document(io.BytesIO(file.read()))
+        return "\n".join([para.text for para in doc.paragraphs])
+    return ""
+
+# --- 4. SIDEBAR ---
 with st.sidebar:
     st.title("⚙️ AI Control")
-    # This value is now passed into the System Prompt
     web_search = st.toggle("Enable Live Web Search", value=True)
     
+    uploaded_file = st.file_uploader("📎 Upload File (.txt, .py, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
+    
     st.divider()
-    st.header("📂 History")
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
@@ -26,18 +42,17 @@ with st.sidebar:
         st.rerun()
 
     for chat_title in list(st.session_state.all_sessions.keys()):
-        btn_type = "primary" if chat_title == st.session_state.current_chat else "secondary"
-        if st.button(chat_title, use_container_width=True, type=btn_type):
+        if st.button(chat_title, use_container_width=True, type="primary" if chat_title == st.session_state.current_chat else "secondary"):
             st.session_state.current_chat = chat_title
             st.rerun()
 
-# --- 4. MAIN INTERFACE ---
+# --- 5. MAIN INTERFACE ---
 st.title(f"🚀 {st.session_state.current_chat}")
 
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Missing GROQ_API_KEY in Streamlit Secrets!")
+    st.error("Missing GROQ_API_KEY!")
     st.stop()
 
 messages = st.session_state.all_sessions[st.session_state.current_chat]
@@ -45,28 +60,25 @@ for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 5. INPUT & RESTORED LOGIC ---
+# --- 6. INPUT & LOGIC ---
 if prompt := st.chat_input("Ask Anything"):
-    # 1. Store user message
-    messages.append({"role": "user", "content": prompt})
+    # Process file context
+    context = ""
+    if uploaded_file:
+        with st.spinner("Reading file..."):
+            file_text = extract_text(uploaded_file)
+            context = f"\n\n[ATTACHED FILE: {uploaded_file.name}]\n{file_text}"
+    
+    full_prompt = prompt + context
+    messages.append({"role": "user", "content": full_prompt})
+    
     with st.chat_message("user"):
         st.markdown(prompt)
 
-    # 2. Generate AI Response
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_res = ""
-        
-        # --- FIX: LIVE WEB SEARCH LOGIC ---
-        # We tell the model it HAS live access when the toggle is on
-        search_status = "ENABLED. Use current 2026 data." if web_search else "DISABLED. Use internal knowledge."
-        curr_date = datetime.now().strftime('%B %d, %Y')
-        
-        sys_msg = (
-            f"Today is {curr_date}. You are a 2026 AI. "
-            f"Live Web Search is {search_status}. "
-            "Provide real-time updates on news, weather, or sports if requested."
-        )
+        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. Use attached file data if present."
         
         stream = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -80,5 +92,16 @@ if prompt := st.chat_input("Ask Anything"):
         placeholder.markdown(full_res)
         messages.append({"role": "assistant", "content": full_res})
 
-    # --- FIX: SMART NAMING (Targets prompt [0]) ---
-    # Trigger only if it's the
+    # SMART NAMING (Restored & Tested)
+    if len(messages) == 2 and ("Session" in st.session_state.current_chat or "New Chat" in st.session_state.current_chat):
+        try:
+            name_gen = client.chat.completions.create(
+                model="llama-3.1-8b-instant",
+                messages=[{"role": "system", "content": "2-word title for this query. No quotes."},
+                          {"role": "user", "content": prompt}]
+            )
+            smart_title = name_gen.choices[0].message.content.strip().replace('"', '')
+            st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+            st.session_state.current_chat = smart_title
+            st.rerun()
+        except: pass
