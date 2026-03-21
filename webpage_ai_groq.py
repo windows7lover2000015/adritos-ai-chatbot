@@ -5,7 +5,7 @@ import PyPDF2
 from docx import Document
 import io
 
-# --- 1. PAGE SETUP ---
+# --- 1. PAGE SETUP (Globe Icon & Browser Tab) ---
 st.set_page_config(page_title="Adrito's AI 2026", page_icon="🌐", layout="wide")
 
 # --- 2. SESSION STATE ---
@@ -14,71 +14,88 @@ if "all_sessions" not in st.session_state:
 if "current_chat" not in st.session_state:
     st.session_state.current_chat = "New Chat Session"
 
-# --- 3. FILE PROCESSING FUNCTIONS ---
+# --- 3. FILE PARSING LOGIC ---
 def extract_text(file):
-    fname = file.name.lower()
-    if fname.endswith(('.txt', '.py', '.md')):
-        return file.read().decode("utf-8")
-    elif fname.endswith('.pdf'):
-        pdf_reader = PyPDF2.PdfReader(file)
-        return "\n".join([page.extract_text() for page in pdf_reader.pages])
-    elif fname.endswith('.docx'):
-        doc = Document(io.BytesIO(file.read()))
-        return "\n".join([para.text for para in doc.paragraphs])
+    try:
+        fname = file.name.lower()
+        if fname.endswith(('.txt', '.py', '.md')):
+            return file.read().decode("utf-8")
+        elif fname.endswith('.pdf'):
+            reader = PyPDF2.PdfReader(file)
+            return "\n".join([p.extract_text() for p in reader.pages if p.extract_text()])
+        elif fname.endswith('.docx'):
+            doc = Document(io.BytesIO(file.read()))
+            return "\n".join([p.text for p in doc.paragraphs])
+    except Exception as e:
+        st.sidebar.error(f"⚠️ File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (Control Center) ---
 with st.sidebar:
     st.title("⚙️ AI Control")
     web_search = st.toggle("Enable Live Web Search", value=True)
     
-    uploaded_file = st.file_uploader("📎 Upload File (.txt, .py, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
+    # File Uploader for multiple formats
+    uploaded_file = st.file_uploader("📎 Upload (.txt, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
     
     st.divider()
+    st.header("📂 Chat History")
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
+    # List all chat sessions
     for chat_title in list(st.session_state.all_sessions.keys()):
-        if st.button(chat_title, use_container_width=True, type="primary" if chat_title == st.session_state.current_chat else "secondary"):
+        is_active = (chat_title == st.session_state.current_chat)
+        if st.button(chat_title, use_container_width=True, type="primary" if is_active else "secondary"):
             st.session_state.current_chat = chat_title
             st.rerun()
 
-# --- 5. MAIN INTERFACE ---
+# --- 5. MAIN CHAT INTERFACE ---
 st.title(f"🚀 {st.session_state.current_chat}")
 
 try:
+    # Key is safely pulled from Streamlit Advanced Settings -> Secrets
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Missing GROQ_API_KEY!")
+    st.error("Missing GROQ_API_KEY! Add it to Streamlit Secrets.")
     st.stop()
 
+# Display current chat history
 messages = st.session_state.all_sessions[st.session_state.current_chat]
 for msg in messages:
     with st.chat_message(msg["role"]):
         st.markdown(msg["content"])
 
-# --- 6. INPUT & LOGIC ---
+# --- 6. CHAT INPUT & LOGIC ---
 if prompt := st.chat_input("Ask Anything"):
-    # Process file context
+    # Handle File Context
     context = ""
     if uploaded_file:
-        with st.spinner("Reading file..."):
+        with st.status("Reading attached file...", expanded=False):
             file_text = extract_text(uploaded_file)
-            context = f"\n\n[ATTACHED FILE: {uploaded_file.name}]\n{file_text}"
+            context = f"\n\n[USER ATTACHED FILE: {uploaded_file.name}]\n{file_text}"
     
-    full_prompt = prompt + context
-    messages.append({"role": "user", "content": full_prompt})
+    # Update History
+    full_user_msg = prompt + context
+    messages.append({"role": "user", "content": full_user_msg})
     
     with st.chat_message("user"):
         st.markdown(prompt)
 
+    # Generate Response
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_res = ""
-        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. Use attached file data if present."
+        
+        # 2026 Awareness & Search logic
+        search_status = "ENABLED (Priority: Current News/Events)" if web_search else "DISABLED"
+        sys_msg = (
+            f"Today is {datetime.now().strftime('%B %d, %Y')}. You are a 2026 AI. "
+            f"Live Web Search is {search_status}. Answer precisely."
+        )
         
         stream = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -92,17 +109,27 @@ if prompt := st.chat_input("Ask Anything"):
         placeholder.markdown(full_res)
         messages.append({"role": "assistant", "content": full_res})
 
-    # SMART NAMING (Restored & Tested)
-    if len(messages) == 2 and ("Session" in st.session_state.current_chat or "New Chat" in st.session_state.current_chat):
+    # --- 7. SMART NAMING (THE FIX) ---
+    # Trigger ONLY on the 1st exchange if the title is still a generic default
+    is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
+    
+    if len(messages) == 2 and is_default:
         try:
+            # We use ONLY your first prompt (messages[0]) to generate the title
             name_gen = client.chat.completions.create(
                 model="llama-3.1-8b-instant",
-                messages=[{"role": "system", "content": "2-word title for this query. No quotes."},
-                          {"role": "user", "content": prompt}]
+                messages=[
+                    {"role": "system", "content": "Return exactly 2 words summarizing this topic. No quotes. No periods."},
+                    {"role": "user", "content": prompt}
+                ]
             )
-            smart_title = name_gen.choices[0].message.content.strip().replace('"', '')
+            smart_title = name_gen.choices[0].message.content.strip().replace('"', '').replace('.', '')
+            
+            # Atomic swap of the session keys
             st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
             st.session_state.current_chat = smart_title
+            
+            # This is critical to refresh the sidebar buttons
             st.rerun()
-        except: pass
-   
+        except:
+            pass
