@@ -105,3 +105,4 @@ if prompt := st.chat_input("Ask Anything"):
             st.session_state.current_chat = smart_title
             st.rerun()
         except: pass
+   
