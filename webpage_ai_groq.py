@@ -30,21 +30,27 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR (Updated with Model Selector) ---
+# --- 4. SIDEBAR (User-Friendly Model Mapping) ---
+# This maps "Friendly Names" to "Groq Model IDs"
+MODEL_MAP = {
+    "🔥 Pro (Ultra Smart)": "openai/gpt-oss-120b",
+    "⚖️ Balanced (Smart & Fast)": "llama-3.3-70b-versatile",
+    "⚡ Lightning (Instant Replies)": "llama-3.1-8b-instant",
+    "🧠 Research (Deep Reasoning)": "openai/gpt-oss-20b"
+}
+
 with st.sidebar:
     st.title("⚙️ AI Control")
     
-    # NEW: Model Selection Dropdown
-    model_option = st.selectbox(
-        "🧠 Choose AI Model",
-        options=[
-            "llama-3.3-70b-versatile", 
-            "llama-3.1-8b-instant",
-            "mixtral-8x7b-32768"
-        ],
-        index=0,
-        help="70b is the most powerful; 8b is the fastest."
+    # Show friendly names to the user
+    selected_friendly_name = st.selectbox(
+        "🧠 Choose Brain Power",
+        options=list(MODEL_MAP.keys()),
+        index=1,
+        help="Pro is best for code; Lightning is best for quick chats."
     )
+    # Get the actual ID for the API
+    model_id = MODEL_MAP[selected_friendly_name]
     
     web_search = st.toggle("Enable Live Web Search", value=True)
     uploaded_file = st.file_uploader("📎 Upload (.txt, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
@@ -80,7 +86,7 @@ if prompt := st.chat_input("Ask Anything"):
     context = ""
     if uploaded_file:
         file_text = extract_text(uploaded_file)
-        context = f"\n\n[FILE ATTACHED: {uploaded_file.name}]\n{file_text}"
+        context = f"\n\n[FILE DATA: {uploaded_file.name}]\n{file_text}"
     
     full_prompt = prompt + context
     messages.append({"role": "user", "content": full_prompt})
@@ -95,7 +101,7 @@ if prompt := st.chat_input("Ask Anything"):
         
         try:
             stream = client.chat.completions.create(
-                model=model_option, # Uses the model from the sidebar
+                model=model_id, # Uses the technical ID
                 messages=[{"role": "system", "content": sys_msg}] + messages,
                 stream=True
             )
@@ -106,14 +112,14 @@ if prompt := st.chat_input("Ask Anything"):
             placeholder.markdown(full_res)
             messages.append({"role": "assistant", "content": full_res})
         except Exception as e:
-            st.error(f"Rate Limit or API Error: {e}")
+            st.error(f"Model Error: {e}")
 
     # --- 7. SMART NAMING ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) == 2 and is_default:
         try:
             name_gen = client.chat.completions.create(
-                model="llama-3.1-8b-instant", # Always use fast model for naming
+                model="llama-3.1-8b-instant",
                 messages=[
                     {"role": "system", "content": "Return exactly 2 words summarizing this topic. No quotes."},
                     {"role": "user", "content": prompt}
