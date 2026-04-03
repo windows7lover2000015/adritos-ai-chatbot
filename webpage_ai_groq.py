@@ -30,12 +30,12 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR ---
+# --- 4. SIDEBAR (OpenAI Model Mapping) ---
 MODEL_MAP = {
-    "🔥 Pro (Ultra Smart)": "llama-3.3-70b-versatile",
-    "⚖️ Balanced (Smart & Fast)": "llama-3.1-70b-versatile",
-    "⚡ Lightning (Instant Replies)": "llama-3.1-8b-instant",
-    "🧠 Research (Reasoning)": "llama-3.2-11b-vision-preview"
+    "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",
+    "⚖️ Balanced (GPT-OSS 70B)": "openai/gpt-oss-70b",
+    "⚡ Lightning (GPT-OSS 20B)": "openai/gpt-oss-20b",
+    "🧠 Research (GPT-OSS 120B-R)": "openai/gpt-oss-120b-reasoning"
 }
 
 with st.sidebar:
@@ -44,7 +44,8 @@ with st.sidebar:
     selected_friendly_name = st.selectbox(
         "🧠 Choose Brain Power",
         options=list(MODEL_MAP.keys()),
-        index=0
+        index=0,
+        help="All models now powered by OpenAI GPT-OSS architecture."
     )
     model_id = MODEL_MAP[selected_friendly_name]
     
@@ -54,14 +55,12 @@ with st.sidebar:
     st.divider()
     st.header("📂 Chat Management")
     
-    # NEW CHAT BUTTON
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
-    # THE RESTORED DELETE BUTTON
     if len(st.session_state.all_sessions) > 1:
         if st.button("🗑️ Delete All History", use_container_width=True, type="secondary"):
             st.session_state.all_sessions = {"New Chat Session": []}
@@ -70,16 +69,13 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Recent Chats")
-    # List all chat sessions
     for chat_title in list(st.session_state.all_sessions.keys()):
         cols = st.columns([0.8, 0.2])
-        # Switch to chat
         if cols[0].button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
                           type="primary" if chat_title == st.session_state.current_chat else "secondary"):
             st.session_state.current_chat = chat_title
             st.rerun()
         
-        # Individual Delete Button (X)
         if len(st.session_state.all_sessions) > 1:
             if cols[1].button("❌", key=f"del_{chat_title}"):
                 del st.session_state.all_sessions[chat_title]
@@ -116,7 +112,7 @@ if prompt := st.chat_input("Ask Anything"):
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_res = ""
-        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI."
+        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI powered by OpenAI GPT-OSS."
         
         try:
             stream = client.chat.completions.create(
@@ -133,12 +129,12 @@ if prompt := st.chat_input("Ask Anything"):
         except Exception as e:
             st.error(f"Error: {e}")
 
-    # --- 7. SMART NAMING ---
+    # --- 7. SMART NAMING (Using the Lightest OpenAI Model) ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) == 2 and is_default:
         try:
             name_gen = client.chat.completions.create(
-                model="llama-3.1-8b-instant",
+                model="openai/gpt-oss-20b",
                 messages=[
                     {"role": "system", "content": "Return exactly 2 words summarizing this topic. No quotes."},
                     {"role": "user", "content": prompt}
