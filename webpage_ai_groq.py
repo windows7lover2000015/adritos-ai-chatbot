@@ -30,8 +30,9 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR (Friendly OpenAI Mapping) ---
-MODEL_MAP = {
+# --- 4. SIDEBAR (The "ID-Hider" Logic) ---
+# This dictionary maps the Label (what you see) to the ID (what the AI uses)
+MODEL_LOOKUP = {
     "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",
     "⚖️ Balanced (GPT-OSS 70B)": "openai/gpt-oss-70b",
     "⚡ Lightning (GPT-OSS 20B)": "openai/gpt-oss-20b",
@@ -41,15 +42,18 @@ MODEL_MAP = {
 with st.sidebar:
     st.title("⚙️ AI Control")
     
-    # Selecting the Friendly Name
-    selected_name = st.selectbox(
+    # We only show the KEYS (The friendly names) to the user
+    friendly_options = list(MODEL_LOOKUP.keys())
+    
+    selected_label = st.selectbox(
         "🧠 Choose Brain Power",
-        options=list(MODEL_MAP.keys()),
+        options=friendly_options,
         index=0,
-        help="All models are now OpenAI GPT-OSS powered."
+        key="model_selector_widget" # Adding a static key prevents UI reset glitches
     )
-    # The actual ID sent to Groq
-    model_id = MODEL_MAP[selected_name]
+    
+    # This line "translates" the friendly name into the technical ID
+    model_id = MODEL_LOOKUP[selected_label]
     
     web_search = st.toggle("Enable Live Web Search", value=True)
     uploaded_file = st.file_uploader("📎 Upload (.txt, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
@@ -57,14 +61,12 @@ with st.sidebar:
     st.divider()
     st.header("📂 Chat Management")
     
-    # Start New Chat
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
-    # Clear All History
     if len(st.session_state.all_sessions) > 1:
         if st.button("🗑️ Delete All History", use_container_width=True, type="secondary"):
             st.session_state.all_sessions = {"New Chat Session": []}
@@ -74,7 +76,6 @@ with st.sidebar:
     st.divider()
     st.subheader("Recent Chats")
     
-    # List Chats with Individual Delete Buttons
     for chat_title in list(st.session_state.all_sessions.keys()):
         cols = st.columns([0.8, 0.2])
         if cols[0].button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
@@ -94,7 +95,7 @@ st.title(f"🚀 {st.session_state.current_chat}")
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Missing API Key in Streamlit Secrets!")
+    st.error("Missing API Key! Please check your Streamlit Secrets.")
     st.stop()
 
 messages = st.session_state.all_sessions[st.session_state.current_chat]
@@ -121,6 +122,7 @@ if prompt := st.chat_input("Ask Anything"):
         sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI."
         
         try:
+            # We use the translated 'model_id' here
             stream = client.chat.completions.create(
                 model=model_id,
                 messages=[{"role": "system", "content": sys_msg}] + messages,
@@ -135,7 +137,7 @@ if prompt := st.chat_input("Ask Anything"):
         except Exception as e:
             st.error(f"API Error: {e}")
 
-    # --- 7. SMART NAMING (Using GPT-OSS 20B for Speed) ---
+    # --- 7. SMART NAMING (Using GPT-OSS 20B) ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) == 2 and is_default:
         try:
