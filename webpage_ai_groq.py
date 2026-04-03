@@ -9,7 +9,7 @@ from docx import Document
 import io
 
 # --- 1. PAGE SETUP ---
-st.set_page_config(page_title="Adrito's Nano AI", page_icon="🍌", layout="wide")
+st.set_page_config(page_title="Adrito's AI Chatbot", page_icon="🌐", layout="wide")
 
 # --- 2. SESSION STATE ---
 if "all_sessions" not in st.session_state:
