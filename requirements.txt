@@ -3,3 +3,5 @@ groq
 PyPDF2
 streamlit-local-storage
 python-docx
+google-genai
+Pillow
