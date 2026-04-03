@@ -30,7 +30,7 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR (OpenAI Model Mapping) ---
+# --- 4. SIDEBAR (Friendly OpenAI Mapping) ---
 MODEL_MAP = {
     "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",
     "⚖️ Balanced (GPT-OSS 70B)": "openai/gpt-oss-70b",
@@ -41,13 +41,15 @@ MODEL_MAP = {
 with st.sidebar:
     st.title("⚙️ AI Control")
     
-    selected_friendly_name = st.selectbox(
+    # Selecting the Friendly Name
+    selected_name = st.selectbox(
         "🧠 Choose Brain Power",
         options=list(MODEL_MAP.keys()),
         index=0,
-        help="All models now powered by OpenAI GPT-OSS architecture."
+        help="All models are now OpenAI GPT-OSS powered."
     )
-    model_id = MODEL_MAP[selected_friendly_name]
+    # The actual ID sent to Groq
+    model_id = MODEL_MAP[selected_name]
     
     web_search = st.toggle("Enable Live Web Search", value=True)
     uploaded_file = st.file_uploader("📎 Upload (.txt, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
@@ -55,12 +57,14 @@ with st.sidebar:
     st.divider()
     st.header("📂 Chat Management")
     
+    # Start New Chat
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
+    # Clear All History
     if len(st.session_state.all_sessions) > 1:
         if st.button("🗑️ Delete All History", use_container_width=True, type="secondary"):
             st.session_state.all_sessions = {"New Chat Session": []}
@@ -69,6 +73,8 @@ with st.sidebar:
 
     st.divider()
     st.subheader("Recent Chats")
+    
+    # List Chats with Individual Delete Buttons
     for chat_title in list(st.session_state.all_sessions.keys()):
         cols = st.columns([0.8, 0.2])
         if cols[0].button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
@@ -88,7 +94,7 @@ st.title(f"🚀 {st.session_state.current_chat}")
 try:
     client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Check your Streamlit Secrets for GROQ_API_KEY!")
+    st.error("Missing API Key in Streamlit Secrets!")
     st.stop()
 
 messages = st.session_state.all_sessions[st.session_state.current_chat]
@@ -101,7 +107,7 @@ if prompt := st.chat_input("Ask Anything"):
     context = ""
     if uploaded_file:
         file_text = extract_text(uploaded_file)
-        context = f"\n\n[FILE DATA: {uploaded_file.name}]\n{file_text}"
+        context = f"\n\n[FILE ATTACHED: {uploaded_file.name}]\n{file_text}"
     
     full_prompt = prompt + context
     messages.append({"role": "user", "content": full_prompt})
@@ -112,7 +118,7 @@ if prompt := st.chat_input("Ask Anything"):
     with st.chat_message("assistant"):
         placeholder = st.empty()
         full_res = ""
-        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI powered by OpenAI GPT-OSS."
+        sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI."
         
         try:
             stream = client.chat.completions.create(
@@ -127,9 +133,9 @@ if prompt := st.chat_input("Ask Anything"):
             placeholder.markdown(full_res)
             messages.append({"role": "assistant", "content": full_res})
         except Exception as e:
-            st.error(f"Error: {e}")
+            st.error(f"API Error: {e}")
 
-    # --- 7. SMART NAMING (Using the Lightest OpenAI Model) ---
+    # --- 7. SMART NAMING (Using GPT-OSS 20B for Speed) ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) == 2 and is_default:
         try:
