@@ -32,12 +32,12 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR (Preserving 120B/20B + Fixing 70B) ---
+# --- 4. SIDEBAR (Preserved 120B/20B + Fixed 70B & Nano) ---
 MODEL_MAP = {
     "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",        # PRESERVED
     "⚖️ Balanced (Llama 3.3 70B)": "llama-3.3-70b-versatile", # FIXED ID
     "⚡ Lightning (GPT-OSS 20B)": "openai/gpt-oss-20b",     # PRESERVED
-    "🎨 Nano Banana (Free Image Gen)": "NANO_MODE"         # NEW BRIDGE
+    "🎨 Nano Banana (Image Gen)": "NANO_MODE"              # FIXED BRIDGE
 }
 
 with st.sidebar:
@@ -47,7 +47,7 @@ with st.sidebar:
         "🧠 Choose Brain Power",
         options=list(MODEL_MAP.keys()),
         index=0,
-        key="model_selector_v4"
+        key="model_selector_final"
     )
     model_choice = MODEL_MAP[selected_label]
     is_image_mode = (model_choice == "NANO_MODE")
@@ -55,6 +55,8 @@ with st.sidebar:
     if not is_image_mode:
         web_search = st.toggle("Enable Live Web Search", value=True)
         uploaded_file = st.file_uploader("📎 Upload Context", type=['txt', 'py', 'md', 'pdf', 'docx'])
+    else:
+        st.info("🎨 Nano Banana is active. Prompt for an image below.")
     
     st.divider()
     if st.button("➕ Start New Chat", use_container_width=True):
@@ -77,7 +79,7 @@ st.title(f"🚀 {st.session_state.current_chat}")
 try:
     groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
 except:
-    st.error("Check your Groq API Key in Secrets!")
+    st.error("Error: Check your Groq API Key in Streamlit Secrets!")
     st.stop()
 
 messages = st.session_state.all_sessions[st.session_state.current_chat]
@@ -98,17 +100,18 @@ if prompt := st.chat_input("Message or Image Prompt..."):
         if is_image_mode:
             with st.status("🍌 Nano Banana is peeling..."):
                 try:
-                    # Using the 2026 Flux-based Nano Bridge (No Billing/Key Required)
+                    # Logic to fix the 'Zero Icon' by downloading bytes first
                     seed = datetime.now().microsecond
-                    image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1280&height=720&seed={seed}&model=flux&nologo=true"
+                    image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1280&height=720&seed={seed}&model=nanobanana-2&nologo=true"
                     
-                    # Pre-verify the image load
-                    img_check = requests.get(image_url)
-                    if img_check.status_code == 200:
-                        st.image(image_url)
-                        messages.append({"role": "assistant", "image": image_url})
+                    img_response = requests.get(image_url, timeout=30)
+                    if img_response.status_code == 200:
+                        image_bytes = io.BytesIO(img_response.content)
+                        img_obj = Image.open(image_bytes)
+                        st.image(img_obj)
+                        messages.append({"role": "assistant", "image": img_obj})
                     else:
-                        st.error("Image bridge timeout. Try a shorter prompt.")
+                        st.error("The image bridge is currently overloaded. Please wait 15 seconds.")
                 except Exception as e:
                     st.error(f"Image Error: {e}")
         else:
@@ -117,12 +120,12 @@ if prompt := st.chat_input("Message or Image Prompt..."):
             context = ""
             if uploaded_file:
                 file_text = extract_text(uploaded_file)
-                context = f"\n\n[FILE DATA]\n{file_text}"
+                context = f"\n\n[FILE ATTACHED]\n{file_text}"
             
             try:
                 stream = groq_client.chat.completions.create(
                     model=model_choice,
-                    messages=[{"role": "system", "content": "You are a helpful 2026 AI."}] + messages[:-1] + [{"role": "user", "content": prompt + context}],
+                    messages=[{"role": "system", "content": "You are a helpful AI assistant."}] + messages[:-1] + [{"role": "user", "content": prompt + context}],
                     stream=True
                 )
                 for chunk in stream:
@@ -132,15 +135,15 @@ if prompt := st.chat_input("Message or Image Prompt..."):
                 placeholder.markdown(full_res)
                 messages.append({"role": "assistant", "content": full_res})
             except Exception as e:
-                st.error(f"Model ID Error: {e}")
+                st.error(f"API Error: {e}")
 
-    # --- 7. SMART NAMING (Using the Fast 20B) ---
+    # --- 7. SMART NAMING (Using Fast 20B) ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) >= 2 and is_default:
         try:
             name_gen = groq_client.chat.completions.create(
                 model="openai/gpt-oss-20b",
-                messages=[{"role": "system", "content": "Return 2 words summarize topic. No quotes."}, {"role": "user", "content": prompt}]
+                messages=[{"role": "system", "content": "Return 2 words summarizing topic. No quotes."}, {"role": "user", "content": prompt}]
             )
             smart_title = name_gen.choices[0].message.content.strip().replace('"', '')
             st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
