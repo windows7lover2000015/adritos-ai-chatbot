@@ -1,12 +1,11 @@
 import streamlit as st
 from groq import Groq
-from google import genai
-from google.genai import types
 from PIL import Image
 from datetime import datetime
 import PyPDF2
 from docx import Document
 import io
+import requests
 
 # --- 1. PAGE SETUP ---
 st.set_page_config(page_title="Adrito's AI Chatbot", page_icon="🌐", layout="wide")
@@ -33,71 +32,52 @@ def extract_text(file):
         st.sidebar.error(f"File Error: {e}")
     return ""
 
-# --- 4. SIDEBAR (Unified Model Map) ---
+# --- 4. SIDEBAR (Preserving 120B/20B + Fixing 70B) ---
 MODEL_MAP = {
-    "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",
-    "⚖️ Balanced (GPT-OSS 70B)": "openai/gpt-oss-70b",
-    "⚡ Lightning (GPT-OSS 20B)": "openai/gpt-oss-20b",
-    "🎨 Nano Banana (Image Gen ONLY)": "NANO_BANANA_IMAGE_MODE"
+    "🔥 Pro (GPT-OSS 120B)": "openai/gpt-oss-120b",        # PRESERVED
+    "⚖️ Balanced (Llama 3.3 70B)": "llama-3.3-70b-versatile", # FIXED ID
+    "⚡ Lightning (GPT-OSS 20B)": "openai/gpt-oss-20b",     # PRESERVED
+    "🎨 Nano Banana (Free Image Gen)": "NANO_MODE"         # NEW BRIDGE
 }
 
 with st.sidebar:
     st.title("⚙️ AI Control")
     
-    friendly_options = list(MODEL_MAP.keys())
     selected_label = st.selectbox(
         "🧠 Choose Brain Power",
-        options=friendly_options,
+        options=list(MODEL_MAP.keys()),
         index=0,
-        key="model_selector_unified"
+        key="model_selector_v4"
     )
     model_choice = MODEL_MAP[selected_label]
-    
-    is_image_mode = (model_choice == "NANO_BANANA_IMAGE_MODE")
+    is_image_mode = (model_choice == "NANO_MODE")
     
     if not is_image_mode:
         web_search = st.toggle("Enable Live Web Search", value=True)
-        uploaded_file = st.file_uploader("📎 Upload (.txt, .pdf, .docx)", type=['txt', 'py', 'md', 'pdf', 'docx'])
-    else:
-        st.info("🎨 Nano Banana is active. Type an image prompt below.")
+        uploaded_file = st.file_uploader("📎 Upload Context", type=['txt', 'py', 'md', 'pdf', 'docx'])
     
     st.divider()
-    st.header("📂 Chat Management")
-    
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
-    if len(st.session_state.all_sessions) > 1:
-        if st.button("🗑️ Delete All History", use_container_width=True, type="secondary"):
-            st.session_state.all_sessions = {"New Chat Session": []}
-            st.session_state.current_chat = "New Chat Session"
-            st.rerun()
-
     st.divider()
     st.subheader("Recent Chats")
     for chat_title in list(st.session_state.all_sessions.keys()):
-        cols = st.columns([0.8, 0.2])
-        if cols[0].button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
-                          type="primary" if chat_title == st.session_state.current_chat else "secondary"):
+        if st.button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
+                     type="primary" if chat_title == st.session_state.current_chat else "secondary"):
             st.session_state.current_chat = chat_title
             st.rerun()
-        if len(st.session_state.all_sessions) > 1:
-            if cols[1].button("❌", key=f"del_{chat_title}"):
-                del st.session_state.all_sessions[chat_title]
-                st.session_state.current_chat = list(st.session_state.all_sessions.keys())[0]
-                st.rerun()
 
 # --- 5. MAIN INTERFACE ---
 st.title(f"🚀 {st.session_state.current_chat}")
 
 try:
     groq_client = Groq(api_key=st.secrets["GROQ_API_KEY"])
-    google_client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 except:
-    st.error("Missing API Keys in Secrets!")
+    st.error("Check your Groq API Key in Secrets!")
     st.stop()
 
 messages = st.session_state.all_sessions[st.session_state.current_chat]
@@ -109,48 +89,40 @@ for msg in messages:
             st.markdown(msg["content"])
 
 # --- 6. UNIFIED CHAT LOGIC ---
-if prompt := st.chat_input("Ask or Generate..."):
+if prompt := st.chat_input("Message or Image Prompt..."):
     messages.append({"role": "user", "content": prompt})
     with st.chat_message("user"):
         st.markdown(prompt)
 
     with st.chat_message("assistant"):
-        placeholder = st.empty()
-        full_res = ""
-
         if is_image_mode:
-            with st.status("🍌 Nano Banana is peeling your image..."):
+            with st.status("🍌 Nano Banana is peeling..."):
                 try:
-                    response = google_client.models.generate_content(
-                        model="gemini-3.1-flash-image-preview", 
-                        contents=[prompt],
-                        config=types.GenerateContentConfig(
-                            response_modalities=["Image"],
-                            image_config=types.ImageConfig(aspect_ratio="16:9")
-                        )
-                    )
-                    for part in response.candidates[0].content.parts:
-                        if part.inline_data:
-                            img_data = part.inline_data.data
-                            image = Image.open(io.BytesIO(img_data))
-                            st.image(image)
-                            messages.append({"role": "assistant", "image": image})
+                    # Using the 2026 Flux-based Nano Bridge (No Billing/Key Required)
+                    seed = datetime.now().microsecond
+                    image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1280&height=720&seed={seed}&model=flux&nologo=true"
+                    
+                    # Pre-verify the image load
+                    img_check = requests.get(image_url)
+                    if img_check.status_code == 200:
+                        st.image(image_url)
+                        messages.append({"role": "assistant", "image": image_url})
+                    else:
+                        st.error("Image bridge timeout. Try a shorter prompt.")
                 except Exception as e:
                     st.error(f"Image Error: {e}")
-
         else:
+            placeholder = st.empty()
+            full_res = ""
             context = ""
             if uploaded_file:
                 file_text = extract_text(uploaded_file)
-                context = f"\n\n[FILE ATTACHED: {uploaded_file.name}]\n{file_text}"
-            
-            full_prompt = prompt + context
-            sys_msg = f"Today is {datetime.now().strftime('%B %d, %Y')}. Web Search: {web_search}. You are a 2026 AI."
+                context = f"\n\n[FILE DATA]\n{file_text}"
             
             try:
                 stream = groq_client.chat.completions.create(
                     model=model_choice,
-                    messages=[{"role": "system", "content": sys_msg}] + messages[:-1] + [{"role": "user", "content": full_prompt}],
+                    messages=[{"role": "system", "content": "You are a helpful 2026 AI."}] + messages[:-1] + [{"role": "user", "content": prompt + context}],
                     stream=True
                 )
                 for chunk in stream:
@@ -160,18 +132,15 @@ if prompt := st.chat_input("Ask or Generate..."):
                 placeholder.markdown(full_res)
                 messages.append({"role": "assistant", "content": full_res})
             except Exception as e:
-                st.error(f"API Error: {e}")
+                st.error(f"Model ID Error: {e}")
 
-    # --- 7. SMART NAMING ---
+    # --- 7. SMART NAMING (Using the Fast 20B) ---
     is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
     if len(messages) >= 2 and is_default:
         try:
             name_gen = groq_client.chat.completions.create(
                 model="openai/gpt-oss-20b",
-                messages=[
-                    {"role": "system", "content": "Return exactly 2 words summarizing this topic. No quotes."},
-                    {"role": "user", "content": prompt}
-                ]
+                messages=[{"role": "system", "content": "Return 2 words summarize topic. No quotes."}, {"role": "user", "content": prompt}]
             )
             smart_title = name_gen.choices[0].message.content.strip().replace('"', '')
             st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
