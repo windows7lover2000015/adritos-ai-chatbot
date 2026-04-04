@@ -43,7 +43,7 @@ MODEL_MAP = {
 
 with st.sidebar:
     st.title("⚙️ AI Control")
-    selected_label = st.selectbox("🧠 Choose Brain Power", options=list(MODEL_MAP.keys()), index=0, key="model_v5")
+    selected_label = st.selectbox("🧠 Choose Brain Power", options=list(MODEL_MAP.keys()), index=0, key="model_v6")
     model_choice = MODEL_MAP[selected_label]
     is_image_mode = (model_choice == "NANO_MODE")
     
@@ -52,18 +52,43 @@ with st.sidebar:
         uploaded_file = st.file_uploader("📎 Upload Context", type=['txt', 'py', 'md', 'pdf', 'docx'])
     
     st.divider()
+    
+    # CHAT MANAGEMENT SECTION
+    st.header("📂 Chats")
+    
     if st.button("➕ Start New Chat", use_container_width=True):
         new_id = f"Session {datetime.now().strftime('%H:%M:%S')}"
         st.session_state.all_sessions[new_id] = []
         st.session_state.current_chat = new_id
         st.rerun()
 
-    st.subheader("Recent Chats")
+    # Fixed "Delete All" Logic - Always visible if there's history
+    if len(st.session_state.all_sessions) > 1:
+        if st.button("🗑️ Delete All History", use_container_width=True, type="secondary", key="del_all_btn"):
+            st.session_state.all_sessions = {"New Chat Session": []}
+            st.session_state.current_chat = "New Chat Session"
+            st.rerun()
+
+    st.divider()
+    
+    # LIST RECENT CHATS WITH DELETE BUTTONS
     for chat_title in list(st.session_state.all_sessions.keys()):
-        if st.button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
-                     type="primary" if chat_title == st.session_state.current_chat else "secondary"):
+        cols = st.columns([0.8, 0.2])
+        
+        # Select Chat
+        if cols[0].button(chat_title, key=f"btn_{chat_title}", use_container_width=True, 
+                          type="primary" if chat_title == st.session_state.current_chat else "secondary"):
             st.session_state.current_chat = chat_title
             st.rerun()
+        
+        # Individual Delete Button (only if more than 1 chat exists)
+        if len(st.session_state.all_sessions) > 1:
+            if cols[1].button("❌", key=f"del_single_{chat_title}"):
+                del st.session_state.all_sessions[chat_title]
+                # Reset current chat if the active one was deleted
+                if st.session_state.current_chat == chat_title:
+                    st.session_state.current_chat = list(st.session_state.all_sessions.keys())[0]
+                st.rerun()
 
 # --- 5. MAIN INTERFACE ---
 st.title(f"🚀 {st.session_state.current_chat}")
@@ -90,14 +115,14 @@ if prompt := st.chat_input("Message or Image Prompt..."):
 
     with st.chat_message("assistant"):
         if is_image_mode:
-            status_box = st.status("🍌 Nano Banana is peeling... (this can take 40s)")
+            status_box = st.status("🍌 Nano Banana is peeling...")
             success = False
-            for attempt in range(2): # Try twice if it times out
+            for attempt in range(2):
                 try:
                     seed = datetime.now().microsecond
+                    # Added 'model=flux' for faster 2026 rendering
                     image_url = f"https://image.pollinations.ai/prompt/{prompt.replace(' ', '%20')}?width=1280&height=720&seed={seed}&model=flux&nologo=true"
                     
-                    # Increased timeout to 60s
                     img_response = requests.get(image_url, timeout=60)
                     if img_response.status_code == 200:
                         image_bytes = io.BytesIO(img_response.content)
@@ -107,17 +132,13 @@ if prompt := st.chat_input("Message or Image Prompt..."):
                         messages.append({"role": "assistant", "image": img_obj})
                         success = True
                         break
-                except requests.exceptions.ReadTimeout:
+                except:
                     if attempt == 0:
-                        status_box.write("⏱️ Bridge is slow, retrying once...")
+                        status_box.write("⏱️ Retrying...")
                         time.sleep(2)
-                    else:
-                        status_box.update(label="❌ Timeout Error", state="error")
-                        st.error("The free bridge is too slow right now. Try a simpler prompt or wait 1 minute.")
-            if not success and not st.session_state.get('error_shown'):
-                st.warning("Server busy. Try again shortly.")
+            if not success:
+                st.error("Server busy. Try again shortly.")
         else:
-            # TEXT GENERATION
             placeholder = st.empty()
             full_res = ""
             context = ""
@@ -139,3 +160,17 @@ if prompt := st.chat_input("Message or Image Prompt..."):
                 messages.append({"role": "assistant", "content": full_res})
             except Exception as e:
                 st.error(f"API Error: {e}")
+
+    # SMART NAMING (Using Fast 20B)
+    is_default = any(x in st.session_state.current_chat for x in ["Session", "New Chat"])
+    if len(messages) >= 2 and is_default:
+        try:
+            name_gen = groq_client.chat.completions.create(
+                model="openai/gpt-oss-20b",
+                messages=[{"role": "system", "content": "Return 2 words summarize topic. No quotes."}, {"role": "user", "content": prompt}]
+            )
+            smart_title = name_gen.choices[0].message.content.strip().replace('"', '')
+            st.session_state.all_sessions[smart_title] = st.session_state.all_sessions.pop(st.session_state.current_chat)
+            st.session_state.current_chat = smart_title
+            st.rerun()
+        except: pass
